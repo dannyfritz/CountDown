@@ -1,0 +1,11 @@
+body {
+  background-color: #ccd75f;
+  text-align: center;
+  font-family: sans-serif;
+}
+.timeview {
+  color: #605949;
+}
+.timeview .answer {
+  font-size: 16em;
+}
