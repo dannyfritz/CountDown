@@ -1,0 +1,23 @@
+{
+  "name": "CountDown",
+  "version": "0.0.0",
+  "authors": [
+    "Danny Fritz <dannyfritz@gmail.com>"
+  ],
+  "license": "Apache v2.0",
+  "private": true,
+  "ignore": [
+    "**/.*",
+    "node_modules",
+    "bower_components",
+    "test",
+    "tests"
+  ],
+  "dependencies": {
+    "momentjs": "~2.3.1",
+    "lodash": "~2.2.1",
+    "zepto": "~1.0.0",
+    "backbone": "~1.1.0",
+    "handlebars": "~1.0.0"
+  }
+}
