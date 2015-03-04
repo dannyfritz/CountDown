@@ -1,0 +1,1 @@
+{"version":3,"sources":["main.less","../../<input css 3>"],"names":[],"mappings":"AAEA;EACC,2BAAA;ECDA","file":"main.css","sourcesContent":["@import \"npm://material-colors/dist/colors\";\n\nhtml {\n\tbackground-color: @md-pink-900;\n}\n",null],"sourceRoot":"/source/"}
