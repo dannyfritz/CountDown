@@ -1,0 +1,84 @@
+v-datepicker {
+	display: block;
+	width: 400px;
+}
+
+	.v-datepicker__year,
+	.v-datepicker__month {
+		background: @md-blue-800;
+		color: @md-white;
+		text-transform: uppercase;
+		font-weight: 600;
+		font-size: 1.5em;
+		& > button {
+			margin: 0;
+			padding: 0 1em;
+			background: none;
+			border: none;
+			transition: background-color 0.3s ease;
+			&:hover {
+				background-color: @md-blue-900;
+			}
+		}
+	}
+
+	.v-datepicker__month,
+	.v-datepicker__year {
+		display: flex;
+	}
+
+		.v-datepicker__month__title,
+		.v-datepicker__year__title {
+			flex-grow: 1;
+			align-self: center;
+			text-align: center;
+		}
+
+	.v-datepicker__daysOfTheWeek {
+		padding: 0.2em;
+		font-size: 1.2em;
+		color: @md-white;
+		text-transform: uppercase;
+	}
+
+	.v-datepicker__dates,
+	.v-datepicker__daysOfTheWeek {
+		display: flex;
+		background: @md-blue-400;
+	}
+
+	.v-datepicker__dates__date,
+	.v-datepicker__daysOfTheWeek__day {
+		width: calc(100% / 7);
+		text-align: center;
+	}
+
+	.v-datepicker__dates {
+		flex-wrap: wrap;
+	}
+
+		.v-datepicker__dates__date {
+		}
+
+	.date {
+		color: @md-blue-300;
+		font-weight: 200;
+		padding: 0.2em;
+		background: @md-blue-50;
+		border: solid 1px @md-blue-100;
+		cursor: pointer;
+	}
+
+		.date--isSelectedMonth {
+			color: @md-blue-900;
+			font-weight: 400;
+		}
+
+		.date--isSelectedDay {
+			color: @md-deep-orange-400;
+			font-weight: 600;
+		}
+
+		.date--isCurrentDay {
+			text-decoration: underline;
+		}

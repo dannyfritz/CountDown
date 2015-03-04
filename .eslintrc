@@ -75,6 +75,7 @@
 		"no-shadow-restricted-names": [2],
 		"no-spaced-func": [1],
 		"no-sparse-arrays": [2],
+		"no-underscore-dangle": [0],
 		"no-unused-vars": [1, {"vars": "local", "args": "after-used"}],
 		"no-unreachable": [2],
 		"no-use-before-define": [2],

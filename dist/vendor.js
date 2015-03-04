@@ -15857,6 +15857,215 @@ function noop() {
 module.exports = noop;
 
 },{}],96:[function(require,module,exports){
+var isArray = require('isarray');
+
+/**
+ * Expose `pathToRegexp`.
+ */
+module.exports = pathToRegexp;
+
+/**
+ * The main path matching regexp utility.
+ *
+ * @type {RegExp}
+ */
+var PATH_REGEXP = new RegExp([
+  // Match escaped characters that would otherwise appear in future matches.
+  // This allows the user to escape special characters that won't transform.
+  '(\\\\.)',
+  // Match Express-style parameters and un-named parameters with a prefix
+  // and optional suffixes. Matches appear as:
+  //
+  // "/:test(\\d+)?" => ["/", "test", "\d+", undefined, "?"]
+  // "/route(\\d+)" => [undefined, undefined, undefined, "\d+", undefined]
+  '([\\/.])?(?:\\:(\\w+)(?:\\(((?:\\\\.|[^)])*)\\))?|\\(((?:\\\\.|[^)])*)\\))([+*?])?',
+  // Match regexp special characters that are always escaped.
+  '([.+*?=^!:${}()[\\]|\\/])'
+].join('|'), 'g');
+
+/**
+ * Escape the capturing group by escaping special characters and meaning.
+ *
+ * @param  {String} group
+ * @return {String}
+ */
+function escapeGroup (group) {
+  return group.replace(/([=!:$\/()])/g, '\\$1');
+}
+
+/**
+ * Attach the keys as a property of the regexp.
+ *
+ * @param  {RegExp} re
+ * @param  {Array}  keys
+ * @return {RegExp}
+ */
+function attachKeys (re, keys) {
+  re.keys = keys;
+  return re;
+}
+
+/**
+ * Get the flags for a regexp from the options.
+ *
+ * @param  {Object} options
+ * @return {String}
+ */
+function flags (options) {
+  return options.sensitive ? '' : 'i';
+}
+
+/**
+ * Pull out keys from a regexp.
+ *
+ * @param  {RegExp} path
+ * @param  {Array}  keys
+ * @return {RegExp}
+ */
+function regexpToRegexp (path, keys) {
+  // Use a negative lookahead to match only capturing groups.
+  var groups = path.source.match(/\((?!\?)/g);
+
+  if (groups) {
+    for (var i = 0; i < groups.length; i++) {
+      keys.push({
+        name:      i,
+        delimiter: null,
+        optional:  false,
+        repeat:    false
+      });
+    }
+  }
+
+  return attachKeys(path, keys);
+}
+
+/**
+ * Transform an array into a regexp.
+ *
+ * @param  {Array}  path
+ * @param  {Array}  keys
+ * @param  {Object} options
+ * @return {RegExp}
+ */
+function arrayToRegexp (path, keys, options) {
+  var parts = [];
+
+  for (var i = 0; i < path.length; i++) {
+    parts.push(pathToRegexp(path[i], keys, options).source);
+  }
+
+  var regexp = new RegExp('(?:' + parts.join('|') + ')', flags(options));
+  return attachKeys(regexp, keys);
+}
+
+/**
+ * Replace the specific tags with regexp strings.
+ *
+ * @param  {String} path
+ * @param  {Array}  keys
+ * @return {String}
+ */
+function replacePath (path, keys) {
+  var index = 0;
+
+  function replace (_, escaped, prefix, key, capture, group, suffix, escape) {
+    if (escaped) {
+      return escaped;
+    }
+
+    if (escape) {
+      return '\\' + escape;
+    }
+
+    var repeat   = suffix === '+' || suffix === '*';
+    var optional = suffix === '?' || suffix === '*';
+
+    keys.push({
+      name:      key || index++,
+      delimiter: prefix || '/',
+      optional:  optional,
+      repeat:    repeat
+    });
+
+    prefix = prefix ? ('\\' + prefix) : '';
+    capture = escapeGroup(capture || group || '[^' + (prefix || '\\/') + ']+?');
+
+    if (repeat) {
+      capture = capture + '(?:' + prefix + capture + ')*';
+    }
+
+    if (optional) {
+      return '(?:' + prefix + '(' + capture + '))?';
+    }
+
+    // Basic parameter support.
+    return prefix + '(' + capture + ')';
+  }
+
+  return path.replace(PATH_REGEXP, replace);
+}
+
+/**
+ * Normalize the given path string, returning a regular expression.
+ *
+ * An empty array can be passed in for the keys, which will hold the
+ * placeholder key descriptions. For example, using `/user/:id`, `keys` will
+ * contain `[{ name: 'id', delimiter: '/', optional: false, repeat: false }]`.
+ *
+ * @param  {(String|RegExp|Array)} path
+ * @param  {Array}                 [keys]
+ * @param  {Object}                [options]
+ * @return {RegExp}
+ */
+function pathToRegexp (path, keys, options) {
+  keys = keys || [];
+
+  if (!isArray(keys)) {
+    options = keys;
+    keys = [];
+  } else if (!options) {
+    options = {};
+  }
+
+  if (path instanceof RegExp) {
+    return regexpToRegexp(path, keys, options);
+  }
+
+  if (isArray(path)) {
+    return arrayToRegexp(path, keys, options);
+  }
+
+  var strict = options.strict;
+  var end = options.end !== false;
+  var route = replacePath(path, keys);
+  var endsWithSlash = path.charAt(path.length - 1) === '/';
+
+  // In non-strict mode we allow a slash at the end of match. If the path to
+  // match already ends with a slash, we remove it for consistency. The slash
+  // is valid at the end of a path match, not in the middle. This is important
+  // in non-ending mode, where "/test/" shouldn't match "/test//route".
+  if (!strict) {
+    route = (endsWithSlash ? route.slice(0, -2) : route) + '(?:\\/(?=$))?';
+  }
+
+  if (end) {
+    route += '$';
+  } else {
+    // In non-ending mode, we need the capturing groups to match as much as
+    // possible by using a positive lookahead to the end or next path segment.
+    route += strict && endsWithSlash ? '' : '(?=\\/|$)';
+  }
+
+  return attachKeys(new RegExp('^' + route, flags(options)), keys);
+}
+
+},{"isarray":97}],97:[function(require,module,exports){
+module.exports = Array.isArray || function (arr) {
+  return Object.prototype.toString.call(arr) == '[object Array]';
+};
+
+},{}],98:[function(require,module,exports){
 var _ = require('../util')
 
 /**
@@ -15904,7 +16113,7 @@ exports.$addChild = function (opts, BaseCtor) {
   this._children.push(child)
   return child
 }
-},{"../util":153}],97:[function(require,module,exports){
+},{"../util":155}],99:[function(require,module,exports){
 var _ = require('../util')
 var Watcher = require('../watcher')
 var Path = require('../parsers/path')
@@ -16069,7 +16278,7 @@ exports.$log = function (path) {
   }
   console.log(data)
 }
-},{"../parsers/directive":141,"../parsers/expression":142,"../parsers/path":143,"../parsers/text":145,"../util":153,"../watcher":156}],98:[function(require,module,exports){
+},{"../parsers/directive":143,"../parsers/expression":144,"../parsers/path":145,"../parsers/text":147,"../util":155,"../watcher":158}],100:[function(require,module,exports){
 var _ = require('../util')
 var transition = require('../transition')
 
@@ -16281,7 +16490,7 @@ function remove (el, vm, cb) {
   _.remove(el)
   if (cb) cb()
 }
-},{"../transition":147,"../util":153}],99:[function(require,module,exports){
+},{"../transition":149,"../util":155}],101:[function(require,module,exports){
 var _ = require('../util')
 
 /**
@@ -16456,7 +16665,7 @@ function modifyListenerCount (vm, event, count) {
     parent = parent.$parent
   }
 }
-},{"../util":153}],100:[function(require,module,exports){
+},{"../util":155}],102:[function(require,module,exports){
 var _ = require('../util')
 var mergeOptions = require('../util/merge-option')
 
@@ -16603,7 +16812,7 @@ function createAssetRegisters (Constructor) {
 }
 
 createAssetRegisters(exports)
-},{"../compiler/compile":104,"../compiler/transclude":105,"../config":106,"../parsers/directive":141,"../parsers/expression":142,"../parsers/path":143,"../parsers/template":144,"../parsers/text":145,"../util":153,"../util/merge-option":155}],101:[function(require,module,exports){
+},{"../compiler/compile":106,"../compiler/transclude":107,"../config":108,"../parsers/directive":143,"../parsers/expression":144,"../parsers/path":145,"../parsers/template":146,"../parsers/text":147,"../util":155,"../util/merge-option":157}],103:[function(require,module,exports){
 var _ = require('../util')
 var compile = require('../compiler/compile')
 
@@ -16676,7 +16885,7 @@ exports.$destroy = function (remove, deferCleanup) {
 exports.$compile = function (el) {
   return compile(el, this.$options, true)(this, el)
 }
-},{"../compiler/compile":104,"../util":153}],102:[function(require,module,exports){
+},{"../compiler/compile":106,"../util":155}],104:[function(require,module,exports){
 var _ = require('./util')
 var MAX_UPDATE_COUNT = 10
 
@@ -16771,7 +16980,7 @@ exports.push = function (job) {
     }
   }
 }
-},{"./util":153}],103:[function(require,module,exports){
+},{"./util":155}],105:[function(require,module,exports){
 /**
  * A doubly linked list-based Least Recently Used (LRU)
  * cache. Will keep most recently used items while
@@ -16884,7 +17093,7 @@ p.get = function (key, returnEntry) {
 }
 
 module.exports = Cache
-},{}],104:[function(require,module,exports){
+},{}],106:[function(require,module,exports){
 var _ = require('../util')
 var config = require('../config')
 var textParser = require('../parsers/text')
@@ -17449,7 +17658,7 @@ function directiveComparator (a, b) {
   b = b.def.priority || 0
   return a > b ? 1 : -1
 }
-},{"../config":106,"../parsers/directive":141,"../parsers/template":144,"../parsers/text":145,"../util":153}],105:[function(require,module,exports){
+},{"../config":108,"../parsers/directive":143,"../parsers/template":146,"../parsers/text":147,"../util":155}],107:[function(require,module,exports){
 var _ = require('../util')
 var templateParser = require('../parsers/template')
 
@@ -17599,7 +17808,7 @@ function insertContentAt (outlet, contents) {
   }
   parent.removeChild(outlet)
 }
-},{"../parsers/template":144,"../util":153}],106:[function(require,module,exports){
+},{"../parsers/template":146,"../util":155}],108:[function(require,module,exports){
 module.exports = {
 
   /**
@@ -17686,7 +17895,7 @@ Object.defineProperty(module.exports, 'delimiters', {
     this._delimitersChanged = true
   }
 })
-},{}],107:[function(require,module,exports){
+},{}],109:[function(require,module,exports){
 var _ = require('./util')
 var config = require('./config')
 var Watcher = require('./watcher')
@@ -17909,7 +18118,7 @@ p.set = function (value, lock) {
 }
 
 module.exports = Directive
-},{"./config":106,"./parsers/expression":142,"./parsers/text":145,"./util":153,"./watcher":156}],108:[function(require,module,exports){
+},{"./config":108,"./parsers/expression":144,"./parsers/text":147,"./util":155,"./watcher":158}],110:[function(require,module,exports){
 // xlink
 var xlinkNS = 'http://www.w3.org/1999/xlink'
 var xlinkRE = /^xlink:/
@@ -17942,7 +18151,7 @@ function xlinkHandler (value) {
     this.el.removeAttributeNS(xlinkNS, 'href')
   }
 }
-},{}],109:[function(require,module,exports){
+},{}],111:[function(require,module,exports){
 var _ = require('../util')
 var addClass = _.addClass
 var removeClass = _.removeClass
@@ -17961,7 +18170,7 @@ module.exports = function (value) {
     }
   }
 }
-},{"../util":153}],110:[function(require,module,exports){
+},{"../util":155}],112:[function(require,module,exports){
 var config = require('../config')
 
 module.exports = {
@@ -17974,7 +18183,7 @@ module.exports = {
   }
 
 }
-},{"../config":106}],111:[function(require,module,exports){
+},{"../config":108}],113:[function(require,module,exports){
 var _ = require('../util')
 var templateParser = require('../parsers/template')
 
@@ -18198,7 +18407,7 @@ module.exports = {
   }
 
 }
-},{"../parsers/template":144,"../util":153}],112:[function(require,module,exports){
+},{"../parsers/template":146,"../util":155}],114:[function(require,module,exports){
 module.exports = {
 
   isLiteral: true,
@@ -18212,7 +18421,7 @@ module.exports = {
   }
   
 }
-},{}],113:[function(require,module,exports){
+},{}],115:[function(require,module,exports){
 var _ = require('../util')
 
 module.exports = { 
@@ -18240,7 +18449,7 @@ module.exports = {
   // so no need for unbind here.
 
 }
-},{"../util":153}],114:[function(require,module,exports){
+},{"../util":155}],116:[function(require,module,exports){
 var _ = require('../util')
 var templateParser = require('../parsers/template')
 
@@ -18279,7 +18488,7 @@ module.exports = {
   }
 
 }
-},{"../parsers/template":144,"../util":153}],115:[function(require,module,exports){
+},{"../parsers/template":146,"../util":155}],117:[function(require,module,exports){
 var _ = require('../util')
 var compile = require('../compiler/compile')
 var templateParser = require('../parsers/template')
@@ -18363,7 +18572,7 @@ module.exports = {
   }
 
 }
-},{"../compiler/compile":104,"../parsers/template":144,"../transition":147,"../util":153}],116:[function(require,module,exports){
+},{"../compiler/compile":106,"../parsers/template":146,"../transition":149,"../util":155}],118:[function(require,module,exports){
 // manipulation directives
 exports.text       = require('./text')
 exports.html       = require('./html')
@@ -18389,7 +18598,7 @@ exports['if']      = require('./if')
 // child vm communication directives
 exports['with']    = require('./with')
 exports.events     = require('./events')
-},{"./attr":108,"./class":109,"./cloak":110,"./component":111,"./el":112,"./events":113,"./html":114,"./if":115,"./model":119,"./on":122,"./partial":123,"./ref":124,"./repeat":125,"./show":126,"./style":127,"./text":128,"./transition":129,"./with":130}],117:[function(require,module,exports){
+},{"./attr":110,"./class":111,"./cloak":112,"./component":113,"./el":114,"./events":115,"./html":116,"./if":117,"./model":121,"./on":124,"./partial":125,"./ref":126,"./repeat":127,"./show":128,"./style":129,"./text":130,"./transition":131,"./with":132}],119:[function(require,module,exports){
 var _ = require('../../util')
 
 module.exports = {
@@ -18415,7 +18624,7 @@ module.exports = {
   }
 
 }
-},{"../../util":153}],118:[function(require,module,exports){
+},{"../../util":155}],120:[function(require,module,exports){
 var _ = require('../../util')
 
 module.exports = {
@@ -18539,7 +18748,7 @@ module.exports = {
   }
 
 }
-},{"../../util":153}],119:[function(require,module,exports){
+},{"../../util":155}],121:[function(require,module,exports){
 var _ = require('../../util')
 
 var handlers = {
@@ -18596,7 +18805,7 @@ module.exports = {
   }
 
 }
-},{"../../util":153,"./checkbox":117,"./default":118,"./radio":120,"./select":121}],120:[function(require,module,exports){
+},{"../../util":155,"./checkbox":119,"./default":120,"./radio":122,"./select":123}],122:[function(require,module,exports){
 var _ = require('../../util')
 
 module.exports = {
@@ -18623,7 +18832,7 @@ module.exports = {
   }
 
 }
-},{"../../util":153}],121:[function(require,module,exports){
+},{"../../util":155}],123:[function(require,module,exports){
 var _ = require('../../util')
 var Watcher = require('../../watcher')
 
@@ -18797,7 +19006,7 @@ function indexOf (arr, val) {
   }
   return -1
 }
-},{"../../util":153,"../../watcher":156}],122:[function(require,module,exports){
+},{"../../util":155,"../../watcher":158}],124:[function(require,module,exports){
 var _ = require('../util')
 
 module.exports = {
@@ -18857,7 +19066,7 @@ module.exports = {
     _.off(this.el, 'load', this.iframeBind)
   }
 }
-},{"../util":153}],123:[function(require,module,exports){
+},{"../util":155}],125:[function(require,module,exports){
 var _ = require('../util')
 var templateParser = require('../parsers/template')
 var vIf = require('./if')
@@ -18902,7 +19111,7 @@ module.exports = {
   }
 
 }
-},{"../parsers/template":144,"../util":153,"./if":115}],124:[function(require,module,exports){
+},{"../parsers/template":146,"../util":155,"./if":117}],126:[function(require,module,exports){
 var _ = require('../util')
 
 module.exports = {
@@ -18926,7 +19135,7 @@ module.exports = {
   }
   
 }
-},{"../util":153}],125:[function(require,module,exports){
+},{"../util":155}],127:[function(require,module,exports){
 var _ = require('../util')
 var isObject = _.isObject
 var isPlainObject = _.isPlainObject
@@ -19431,7 +19640,7 @@ function range (n) {
   }
   return ret
 }
-},{"../compiler/compile":104,"../compiler/transclude":105,"../parsers/expression":142,"../parsers/template":144,"../parsers/text":145,"../util":153,"../util/merge-option":155}],126:[function(require,module,exports){
+},{"../compiler/compile":106,"../compiler/transclude":107,"../parsers/expression":144,"../parsers/template":146,"../parsers/text":147,"../util":155,"../util/merge-option":157}],128:[function(require,module,exports){
 var transition = require('../transition')
 
 module.exports = function (value) {
@@ -19440,7 +19649,7 @@ module.exports = function (value) {
     el.style.display = value ? '' : 'none'
   }, this.vm)
 }
-},{"../transition":147}],127:[function(require,module,exports){
+},{"../transition":149}],129:[function(require,module,exports){
 var _ = require('../util')
 var prefixes = ['-webkit-', '-moz-', '-ms-']
 var camelPrefixes = ['Webkit', 'Moz', 'ms']
@@ -19541,7 +19750,7 @@ function prefix (prop) {
     }
   }
 }
-},{"../util":153}],128:[function(require,module,exports){
+},{"../util":155}],130:[function(require,module,exports){
 var _ = require('../util')
 
 module.exports = {
@@ -19557,7 +19766,7 @@ module.exports = {
   }
   
 }
-},{"../util":153}],129:[function(require,module,exports){
+},{"../util":155}],131:[function(require,module,exports){
 module.exports = {
 
   priority: 1000,
@@ -19572,7 +19781,7 @@ module.exports = {
   }
 
 }
-},{}],130:[function(require,module,exports){
+},{}],132:[function(require,module,exports){
 var _ = require('../util')
 var Watcher = require('../watcher')
 
@@ -19646,7 +19855,7 @@ module.exports = {
   }
 
 }
-},{"../util":153,"../watcher":156}],131:[function(require,module,exports){
+},{"../util":155,"../watcher":158}],133:[function(require,module,exports){
 var _ = require('../util')
 var Path = require('../parsers/path')
 
@@ -19734,7 +19943,7 @@ function contains (val, search) {
     return val.toString().toLowerCase().indexOf(search) > -1
   }
 }
-},{"../parsers/path":143,"../util":153}],132:[function(require,module,exports){
+},{"../parsers/path":145,"../util":155}],134:[function(require,module,exports){
 var _ = require('../util')
 
 /**
@@ -19870,7 +20079,7 @@ exports.key.keyCodes = keyCodes
  */
 
 _.extend(exports, require('./array-filters'))
-},{"../util":153,"./array-filters":131}],133:[function(require,module,exports){
+},{"../util":155,"./array-filters":133}],135:[function(require,module,exports){
 var _ = require('../util')
 var Directive = require('../directive')
 var compile = require('../compiler/compile')
@@ -20059,7 +20268,7 @@ exports._cleanup = function () {
   // turn off all instance listeners.
   this.$off()
 }
-},{"../compiler/compile":104,"../compiler/transclude":105,"../directive":107,"../util":153}],134:[function(require,module,exports){
+},{"../compiler/compile":106,"../compiler/transclude":107,"../directive":109,"../util":155}],136:[function(require,module,exports){
 var _ = require('../util')
 var inDoc = _.inDoc
 
@@ -20198,7 +20407,7 @@ exports._callHook = function (hook) {
   }
   this.$emit('hook:' + hook)
 }
-},{"../util":153}],135:[function(require,module,exports){
+},{"../util":155}],137:[function(require,module,exports){
 var mergeOptions = require('../util/merge-option')
 
 /**
@@ -20276,7 +20485,7 @@ exports._init = function (options) {
     this.$mount(options.el)
   }
 }
-},{"../util/merge-option":155}],136:[function(require,module,exports){
+},{"../util/merge-option":157}],138:[function(require,module,exports){
 var _ = require('../util')
 var Observer = require('../observer')
 var Dep = require('../observer/dep')
@@ -20491,7 +20700,7 @@ exports._defineMeta = function (key, value) {
     }
   })
 }
-},{"../observer":139,"../observer/dep":138,"../util":153}],137:[function(require,module,exports){
+},{"../observer":141,"../observer/dep":140,"../util":155}],139:[function(require,module,exports){
 var _ = require('../util')
 var arrayProto = Array.prototype
 var arrayMethods = Object.create(arrayProto)
@@ -20582,7 +20791,7 @@ _.define(
 )
 
 module.exports = arrayMethods
-},{"../util":153}],138:[function(require,module,exports){
+},{"../util":155}],140:[function(require,module,exports){
 var uid = 0
 
 /**
@@ -20633,7 +20842,7 @@ p.notify = function () {
 }
 
 module.exports = Dep
-},{}],139:[function(require,module,exports){
+},{}],141:[function(require,module,exports){
 var _ = require('../util')
 var config = require('../config')
 var Dep = require('./dep')
@@ -20870,7 +21079,7 @@ p.removeVm = function (vm) {
 
 module.exports = Observer
 
-},{"../config":106,"../util":153,"./array":137,"./dep":138,"./object":140}],140:[function(require,module,exports){
+},{"../config":108,"../util":155,"./array":139,"./dep":140,"./object":142}],142:[function(require,module,exports){
 var _ = require('../util')
 var objProto = Object.prototype
 
@@ -20937,7 +21146,7 @@ _.define(
     }
   }
 )
-},{"../util":153}],141:[function(require,module,exports){
+},{"../util":155}],143:[function(require,module,exports){
 var _ = require('../util')
 var Cache = require('../cache')
 var cache = new Cache(1000)
@@ -21097,7 +21306,7 @@ exports.parse = function (s) {
   cache.put(s, dirs)
   return dirs
 }
-},{"../cache":103,"../util":153}],142:[function(require,module,exports){
+},{"../cache":105,"../util":155}],144:[function(require,module,exports){
 var _ = require('../util')
 var Path = require('./path')
 var Cache = require('../cache')
@@ -21325,7 +21534,7 @@ exports.parse = function (exp, needSet) {
 
 // Export the pathRegex for external use
 exports.pathTestRE = pathTestRE
-},{"../cache":103,"../util":153,"./path":143}],143:[function(require,module,exports){
+},{"../cache":105,"../util":155,"./path":145}],145:[function(require,module,exports){
 var _ = require('../util')
 var Cache = require('../cache')
 var pathCache = new Cache(1000)
@@ -21623,7 +21832,7 @@ exports.set = function (obj, path, val) {
   }
   return true
 }
-},{"../cache":103,"../util":153}],144:[function(require,module,exports){
+},{"../cache":105,"../util":155}],146:[function(require,module,exports){
 var _ = require('../util')
 var Cache = require('../cache')
 var templateCache = new Cache(1000)
@@ -21874,7 +22083,7 @@ exports.parse = function (template, clone, noSelector) {
     ? exports.clone(frag)
     : frag
 }
-},{"../cache":103,"../util":153}],145:[function(require,module,exports){
+},{"../cache":105,"../util":155}],147:[function(require,module,exports){
 var Cache = require('../cache')
 var config = require('../config')
 var dirParser = require('./directive')
@@ -22053,7 +22262,7 @@ function inlineFilters (exp) {
     }
   }
 }
-},{"../cache":103,"../config":106,"./directive":141}],146:[function(require,module,exports){
+},{"../cache":105,"../config":108,"./directive":143}],148:[function(require,module,exports){
 var _ = require('../util')
 var addClass = _.addClass
 var removeClass = _.removeClass
@@ -22243,7 +22452,7 @@ module.exports = function (el, direction, op, data, cb) {
     push(el, direction, op, leaveClass, cb)
   }
 }
-},{"../util":153}],147:[function(require,module,exports){
+},{"../util":155}],149:[function(require,module,exports){
 var _ = require('../util')
 var applyCSSTransition = require('./css')
 var applyJSTransition = require('./js')
@@ -22395,7 +22604,7 @@ var apply = exports.apply = function (el, direction, op, vm, cb) {
     if (cb) cb()
   }
 }
-},{"../util":153,"./css":146,"./js":148}],148:[function(require,module,exports){
+},{"../util":155,"./css":148,"./js":150}],150:[function(require,module,exports){
 /**
  * Apply JavaScript enter/leave functions.
  *
@@ -22439,7 +22648,7 @@ module.exports = function (el, direction, op, data, def, vm, cb) {
     }
   }
 }
-},{}],149:[function(require,module,exports){
+},{}],151:[function(require,module,exports){
 var config = require('../config')
 
 /**
@@ -22500,7 +22709,7 @@ function enableDebug () {
     }
   }
 }
-},{"../config":106}],150:[function(require,module,exports){
+},{"../config":108}],152:[function(require,module,exports){
 var config = require('../config')
 
 /**
@@ -22698,7 +22907,7 @@ exports.extractContent = function (el) {
   }
   return rawContent
 }
-},{"../config":106}],151:[function(require,module,exports){
+},{"../config":108}],153:[function(require,module,exports){
 /**
  * Can we use __proto__?
  *
@@ -22805,7 +23014,7 @@ if (inBrowser && !exports.isIE9) {
     ? 'webkitAnimationEnd'
     : 'animationend'
 }
-},{}],152:[function(require,module,exports){
+},{}],154:[function(require,module,exports){
 var _ = require('./debug')
 
 /**
@@ -22878,7 +23087,7 @@ exports.applyFilters = function (value, filters, vm, oldVal) {
   }
   return value
 }
-},{"./debug":149}],153:[function(require,module,exports){
+},{"./debug":151}],155:[function(require,module,exports){
 var lang   = require('./lang')
 var extend = lang.extend
 
@@ -22887,7 +23096,7 @@ extend(exports, require('./env'))
 extend(exports, require('./dom'))
 extend(exports, require('./filter'))
 extend(exports, require('./debug'))
-},{"./debug":149,"./dom":150,"./env":151,"./filter":152,"./lang":154}],154:[function(require,module,exports){
+},{"./debug":151,"./dom":152,"./env":153,"./filter":154,"./lang":156}],156:[function(require,module,exports){
 /**
  * Check is a string starts with $ or _
  *
@@ -23063,7 +23272,7 @@ exports.define = function (obj, key, val, enumerable) {
     configurable : true
   })
 }
-},{}],155:[function(require,module,exports){
+},{}],157:[function(require,module,exports){
 var _ = require('./index')
 var extend = _.extend
 
@@ -23322,7 +23531,7 @@ module.exports = function mergeOptions (parent, child, vm) {
   }
   return options
 }
-},{"./index":153}],156:[function(require,module,exports){
+},{"./index":155}],158:[function(require,module,exports){
 var _ = require('./util')
 var config = require('./config')
 var Observer = require('./observer')
@@ -23580,7 +23789,7 @@ function traverse (obj) {
 }
 
 module.exports = Watcher
-},{"./batcher":102,"./config":106,"./observer":139,"./parsers/expression":142,"./util":153}],"immutable":[function(require,module,exports){
+},{"./batcher":104,"./config":108,"./observer":141,"./parsers/expression":144,"./util":155}],"immutable":[function(require,module,exports){
 /**
  *  Copyright (c) 2014, Facebook, Inc.
  *  All rights reserved.
@@ -52809,7 +53018,598 @@ return /******/ (function(modules) { // webpackBootstrap
 /******/ ])
 });
 
-},{}],"vue":[function(require,module,exports){
+},{}],"page":[function(require,module,exports){
+  /* globals require, module */
+
+  'use strict';
+
+  /**
+   * Module dependencies.
+   */
+
+  var pathtoRegexp = require('path-to-regexp');
+
+  /**
+   * Module exports.
+   */
+
+  module.exports = page;
+
+  /**
+   * To work properly with the URL
+   * history.location generated polyfill in https://github.com/devote/HTML5-History-API
+   */
+
+  var location = ('undefined' !== typeof window) && (window.history.location || window.location);
+
+  /**
+   * Perform initial dispatch.
+   */
+
+  var dispatch = true;
+
+  /**
+   * Decode URL components (query string, pathname, hash).
+   * Accommodates both regular percent encoding and x-www-form-urlencoded format.
+   */
+  var decodeURLComponents = true;
+
+  /**
+   * Base path.
+   */
+
+  var base = '';
+
+  /**
+   * Running flag.
+   */
+
+  var running;
+
+  /**
+   * HashBang option
+   */
+
+  var hashbang = false;
+
+  /**
+   * Previous context, for capturing
+   * page exit events.
+   */
+
+  var prevContext;
+
+  /**
+   * Register `path` with callback `fn()`,
+   * or route `path`, or redirection,
+   * or `page.start()`.
+   *
+   *   page(fn);
+   *   page('*', fn);
+   *   page('/user/:id', load, user);
+   *   page('/user/' + user.id, { some: 'thing' });
+   *   page('/user/' + user.id);
+   *   page('/from', '/to')
+   *   page();
+   *
+   * @param {String|Function} path
+   * @param {Function} fn...
+   * @api public
+   */
+
+  function page(path, fn) {
+    // <callback>
+    if ('function' === typeof path) {
+      return page('*', path);
+    }
+
+    // route <path> to <callback ...>
+    if ('function' === typeof fn) {
+      var route = new Route(path);
+      for (var i = 1; i < arguments.length; ++i) {
+        page.callbacks.push(route.middleware(arguments[i]));
+      }
+      // show <path> with [state]
+    } else if ('string' === typeof path) {
+      page['string' === typeof fn ? 'redirect' : 'show'](path, fn);
+      // start [options]
+    } else {
+      page.start(path);
+    }
+  }
+
+  /**
+   * Callback functions.
+   */
+
+  page.callbacks = [];
+  page.exits = [];
+
+  /**
+   * Current path being processed
+   * @type {String}
+   */
+  page.current = '';
+
+  /**
+   * Number of pages navigated to.
+   * @type {number}
+   *
+   *     page.len == 0;
+   *     page('/login');
+   *     page.len == 1;
+   */
+
+  page.len = 0;
+
+  /**
+   * Get or set basepath to `path`.
+   *
+   * @param {String} path
+   * @api public
+   */
+
+  page.base = function(path) {
+    if (0 === arguments.length) return base;
+    base = path;
+  };
+
+  /**
+   * Bind with the given `options`.
+   *
+   * Options:
+   *
+   *    - `click` bind to click events [true]
+   *    - `popstate` bind to popstate [true]
+   *    - `dispatch` perform initial dispatch [true]
+   *
+   * @param {Object} options
+   * @api public
+   */
+
+  page.start = function(options) {
+    options = options || {};
+    if (running) return;
+    running = true;
+    if (false === options.dispatch) dispatch = false;
+    if (false === options.decodeURLComponents) decodeURLComponents = false;
+    if (false !== options.popstate) window.addEventListener('popstate', onpopstate, false);
+    if (false !== options.click) window.addEventListener('click', onclick, false);
+    if (true === options.hashbang) hashbang = true;
+    if (!dispatch) return;
+    var url = (hashbang && ~location.hash.indexOf('#!')) ? location.hash.substr(2) + location.search : location.pathname + location.search + location.hash;
+    page.replace(url, null, true, dispatch);
+  };
+
+  /**
+   * Unbind click and popstate event handlers.
+   *
+   * @api public
+   */
+
+  page.stop = function() {
+    if (!running) return;
+    page.current = '';
+    page.len = 0;
+    running = false;
+    window.removeEventListener('click', onclick, false);
+    window.removeEventListener('popstate', onpopstate, false);
+  };
+
+  /**
+   * Show `path` with optional `state` object.
+   *
+   * @param {String} path
+   * @param {Object} state
+   * @param {Boolean} dispatch
+   * @return {Context}
+   * @api public
+   */
+
+  page.show = function(path, state, dispatch, push) {
+    var ctx = new Context(path, state);
+    page.current = ctx.path;
+    if (false !== dispatch) page.dispatch(ctx);
+    if (false !== ctx.handled && false !== push) ctx.pushState();
+    return ctx;
+  };
+
+  /**
+   * Goes back in the history
+   * Back should always let the current route push state and then go back.
+   *
+   * @param {String} path - fallback path to go back if no more history exists, if undefined defaults to page.base
+   * @param {Object} [state]
+   * @api public
+   */
+
+  page.back = function(path, state) {
+    if (page.len > 0) {
+      // this may need more testing to see if all browsers
+      // wait for the next tick to go back in history
+      history.back();
+      page.len--;
+    } else if (path) {
+      setTimeout(function() {
+        page.show(path, state);
+      });
+    }else{
+      setTimeout(function() {
+        page.show(base, state);
+      });
+    }
+  };
+
+
+  /**
+   * Register route to redirect from one path to other
+   * or just redirect to another route
+   *
+   * @param {String} from - if param 'to' is undefined redirects to 'from'
+   * @param {String} [to]
+   * @api public
+   */
+  page.redirect = function(from, to) {
+    // Define route from a path to another
+    if ('string' === typeof from && 'string' === typeof to) {
+      page(from, function(e) {
+        setTimeout(function() {
+          page.replace(to);
+        }, 0);
+      });
+    }
+
+    // Wait for the push state and replace it with another
+    if ('string' === typeof from && 'undefined' === typeof to) {
+      setTimeout(function() {
+        page.replace(from);
+      }, 0);
+    }
+  };
+
+  /**
+   * Replace `path` with optional `state` object.
+   *
+   * @param {String} path
+   * @param {Object} state
+   * @return {Context}
+   * @api public
+   */
+
+
+  page.replace = function(path, state, init, dispatch) {
+    var ctx = new Context(path, state);
+    page.current = ctx.path;
+    ctx.init = init;
+    ctx.save(); // save before dispatching, which may redirect
+    if (false !== dispatch) page.dispatch(ctx);
+    return ctx;
+  };
+
+  /**
+   * Dispatch the given `ctx`.
+   *
+   * @param {Object} ctx
+   * @api private
+   */
+
+  page.dispatch = function(ctx) {
+    var prev = prevContext,
+      i = 0,
+      j = 0;
+
+    prevContext = ctx;
+
+    function nextExit() {
+      var fn = page.exits[j++];
+      if (!fn) return nextEnter();
+      fn(prev, nextExit);
+    }
+
+    function nextEnter() {
+      var fn = page.callbacks[i++];
+
+      if (ctx.path !== page.current) {
+        ctx.handled = false;
+        return;
+      }
+      if (!fn) return unhandled(ctx);
+      fn(ctx, nextEnter);
+    }
+
+    if (prev) {
+      nextExit();
+    } else {
+      nextEnter();
+    }
+  };
+
+  /**
+   * Unhandled `ctx`. When it's not the initial
+   * popstate then redirect. If you wish to handle
+   * 404s on your own use `page('*', callback)`.
+   *
+   * @param {Context} ctx
+   * @api private
+   */
+
+  function unhandled(ctx) {
+    if (ctx.handled) return;
+    var current;
+
+    if (hashbang) {
+      current = base + location.hash.replace('#!', '');
+    } else {
+      current = location.pathname + location.search;
+    }
+
+    if (current === ctx.canonicalPath) return;
+    page.stop();
+    ctx.handled = false;
+    location.href = ctx.canonicalPath;
+  }
+
+  /**
+   * Register an exit route on `path` with
+   * callback `fn()`, which will be called
+   * on the previous context when a new
+   * page is visited.
+   */
+  page.exit = function(path, fn) {
+    if (typeof path === 'function') {
+      return page.exit('*', path);
+    }
+
+    var route = new Route(path);
+    for (var i = 1; i < arguments.length; ++i) {
+      page.exits.push(route.middleware(arguments[i]));
+    }
+  };
+
+  /**
+   * Remove URL encoding from the given `str`.
+   * Accommodates whitespace in both x-www-form-urlencoded
+   * and regular percent-encoded form.
+   *
+   * @param {str} URL component to decode
+   */
+  function decodeURLEncodedURIComponent(val) {
+    if (typeof val !== 'string') { return val; }
+    return decodeURLComponents ? decodeURIComponent(val.replace(/\+/g, ' ')) : val;
+  }
+
+  /**
+   * Initialize a new "request" `Context`
+   * with the given `path` and optional initial `state`.
+   *
+   * @param {String} path
+   * @param {Object} state
+   * @api public
+   */
+
+  function Context(path, state) {
+    if ('/' === path[0] && 0 !== path.indexOf(base)) path = base + (hashbang ? '#!' : '') + path;
+    var i = path.indexOf('?');
+
+    this.canonicalPath = path;
+    this.path = path.replace(base, '') || '/';
+    if (hashbang) this.path = this.path.replace('#!', '') || '/';
+
+    this.title = document.title;
+    this.state = state || {};
+    this.state.path = path;
+    this.querystring = ~i ? decodeURLEncodedURIComponent(path.slice(i + 1)) : '';
+    this.pathname = decodeURLEncodedURIComponent(~i ? path.slice(0, i) : path);
+    this.params = {};
+
+    // fragment
+    this.hash = '';
+    if (!hashbang) {
+      if (!~this.path.indexOf('#')) return;
+      var parts = this.path.split('#');
+      this.path = parts[0];
+      this.hash = decodeURLEncodedURIComponent(parts[1]) || '';
+      this.querystring = this.querystring.split('#')[0];
+    }
+  }
+
+  /**
+   * Expose `Context`.
+   */
+
+  page.Context = Context;
+
+  /**
+   * Push state.
+   *
+   * @api private
+   */
+
+  Context.prototype.pushState = function() {
+    page.len++;
+    history.pushState(this.state, this.title, hashbang && this.path !== '/' ? '#!' + this.path : this.canonicalPath);
+  };
+
+  /**
+   * Save the context state.
+   *
+   * @api public
+   */
+
+  Context.prototype.save = function() {
+    history.replaceState(this.state, this.title, hashbang && this.path !== '/' ? '#!' + this.path : this.canonicalPath);
+  };
+
+  /**
+   * Initialize `Route` with the given HTTP `path`,
+   * and an array of `callbacks` and `options`.
+   *
+   * Options:
+   *
+   *   - `sensitive`    enable case-sensitive routes
+   *   - `strict`       enable strict matching for trailing slashes
+   *
+   * @param {String} path
+   * @param {Object} options.
+   * @api private
+   */
+
+  function Route(path, options) {
+    options = options || {};
+    this.path = (path === '*') ? '(.*)' : path;
+    this.method = 'GET';
+    this.regexp = pathtoRegexp(this.path,
+      this.keys = [],
+      options.sensitive,
+      options.strict);
+  }
+
+  /**
+   * Expose `Route`.
+   */
+
+  page.Route = Route;
+
+  /**
+   * Return route middleware with
+   * the given callback `fn()`.
+   *
+   * @param {Function} fn
+   * @return {Function}
+   * @api public
+   */
+
+  Route.prototype.middleware = function(fn) {
+    var self = this;
+    return function(ctx, next) {
+      if (self.match(ctx.path, ctx.params)) return fn(ctx, next);
+      next();
+    };
+  };
+
+  /**
+   * Check if this route matches `path`, if so
+   * populate `params`.
+   *
+   * @param {String} path
+   * @param {Object} params
+   * @return {Boolean}
+   * @api private
+   */
+
+  Route.prototype.match = function(path, params) {
+    var keys = this.keys,
+      qsIndex = path.indexOf('?'),
+      pathname = ~qsIndex ? path.slice(0, qsIndex) : path,
+      m = this.regexp.exec(decodeURIComponent(pathname));
+
+    if (!m) return false;
+
+    for (var i = 1, len = m.length; i < len; ++i) {
+      var key = keys[i - 1];
+      var val = decodeURLEncodedURIComponent(m[i]);
+      if (val !== undefined || !(hasOwnProperty.call(params, key.name))) {
+        params[key.name] = val;
+      }
+    }
+
+    return true;
+  };
+
+  /**
+   * Handle "populate" events.
+   */
+
+  function onpopstate(e) {
+    if (e.state) {
+      var path = e.state.path;
+      page.replace(path, e.state);
+    } else {
+      page.show(location.pathname + location.hash, undefined, undefined, false);
+    }
+  }
+
+  /**
+   * Handle "click" events.
+   */
+
+  function onclick(e) {
+
+    if (1 !== which(e)) return;
+
+    if (e.metaKey || e.ctrlKey || e.shiftKey) return;
+    if (e.defaultPrevented) return;
+
+
+
+    // ensure link
+    var el = e.target;
+    while (el && 'A' !== el.nodeName) el = el.parentNode;
+    if (!el || 'A' !== el.nodeName) return;
+
+
+
+    // Ignore if tag has
+    // 1. "download" attribute
+    // 2. rel="external" attribute
+    if (el.getAttribute('download') || el.getAttribute('rel') === 'external') return;
+
+    // ensure non-hash for the same path
+    var link = el.getAttribute('href');
+    if (!hashbang && el.pathname === location.pathname && (el.hash || '#' === link)) return;
+
+
+
+    // Check for mailto: in the href
+    if (link && link.indexOf('mailto:') > -1) return;
+
+    // check target
+    if (el.target) return;
+
+    // x-origin
+    if (!sameOrigin(el.href)) return;
+
+
+
+    // rebuild path
+    var path = el.pathname + el.search + (el.hash || '');
+
+    // same page
+    var orig = path;
+
+    path = path.replace(base, '');
+    if (hashbang) path = path.replace('#!', '');
+
+
+
+    if (base && orig === path) return;
+
+    e.preventDefault();
+    page.show(orig);
+  }
+
+  /**
+   * Event button.
+   */
+
+  function which(e) {
+    e = e || window.event;
+    return null === e.which ? e.button : e.which;
+  }
+
+  /**
+   * Check if `href` is the same origin.
+   */
+
+  function sameOrigin(href) {
+    var origin = location.protocol + '//' + location.hostname;
+    if (location.port) origin += ':' + location.port;
+    return (href && (0 === href.indexOf(origin)));
+  }
+
+  page.sameOrigin = sameOrigin;
+
+},{"path-to-regexp":96}],"vue":[function(require,module,exports){
 var _ = require('./util')
 var extend = _.extend
 
@@ -52894,4 +53694,4 @@ extend(p, require('./api/child'))
 extend(p, require('./api/lifecycle'))
 
 module.exports = _.Vue = Vue
-},{"./api/child":96,"./api/data":97,"./api/dom":98,"./api/events":99,"./api/global":100,"./api/lifecycle":101,"./directives":116,"./filters":132,"./instance/compile":133,"./instance/events":134,"./instance/init":135,"./instance/scope":136,"./util":153}]},{},[]);
+},{"./api/child":98,"./api/data":99,"./api/dom":100,"./api/events":101,"./api/global":102,"./api/lifecycle":103,"./directives":118,"./filters":134,"./instance/compile":135,"./instance/events":136,"./instance/init":137,"./instance/scope":138,"./util":155}]},{},[]);
