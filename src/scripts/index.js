@@ -4,11 +4,13 @@ const components = bulk(__dirname, [
 	'components/**/*.js', 'filters/**/*.js', 'directives/**/*.js'
 ]);
 const app = require('./app.js');
-const page = require('page');
+const page = require('./router.js');
 
 page('/setup', () => app.view = 'v-setup');
-page('/time', () => app.view = 'v-timer');
+page('/countdown', () => app.view = 'v-countdown');
 page('*', () => page.redirect('/setup'));
+
 page.start({
-	hashbang: true
+	hashbang: true,
+	decodeURLComponents: false
 });

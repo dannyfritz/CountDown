@@ -9,15 +9,20 @@ Vue.component('v-datepicker', {
 	},
 	template: require('../templates/v-datepicker.vue'),
 	paramAttributes: ['date'],
+	compiled () {
+		if (!this.date) {
+			this.date = moment().toISOString();
+		}
+	},
 	data () {
 		return {
-			date: moment(),
+			date: null,
 			daysInTheWeek: 7
 		};
 	},
 	computed: {
 		moment () {
-			return moment(this.date);
+			return moment(this.date, moment.ISO_8601);
 		},
 		day () {
 			return this.moment.day();
@@ -46,7 +51,8 @@ Vue.component('v-datepicker', {
 			this.date = this.moment.add(1, 'year').toISOString();
 		},
 		selectDate (value) {
-			this.date = value;
+			this.date =
+				moment(value, moment.ISO_8601).startOf('day').toISOString();
 		}
 	}
 });
