@@ -1425,7 +1425,7 @@ Vue.component("v-setup", {
 	},
 	methods: {
 		create: function create() {
-			page.redirect("/countdown?date=" + this.date + "&title=" + this.title);
+			page.show("/countdown?date=" + this.date + "&title=" + this.title);
 		}
 	}
 });
